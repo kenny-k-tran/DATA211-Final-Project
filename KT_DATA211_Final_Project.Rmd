@@ -1,0 +1,252 @@
+---
+title: "Screen Time Across the Week: Comparing Weekday and Weekend Phone Usage"
+author: "Kenny Tran | Metropolitan State University | DATA 211"
+date: "2026-11-13"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 8, fig.height = 4.8)
+```
+
+## Introduction
+
+This report looks at whether my average daily phone screen time is different between weekdays and weekends. I used my iPhone's Screen Time feature to collect 21 consecutive days of data, from October 19 through November 8, 2026.
+
+## Research Question and Hypotheses
+
+**Research question:** Is my average daily screen time different between weekdays and weekends?
+
+**Null hypothesis (H0):** The average daily screen time is the same for weekdays and weekends.
+
+**Alternative hypothesis (Ha):** The average daily screen time is different for weekdays and weekends.
+
+## Import and Clean Data
+
+```{r import-and-clean}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+
+ScreenTime <- read_excel("TranScreenTimeDataLog.xlsx", range = "A4:D25",
+                         col_types = c("date", "text", "text", "text"))
+names(ScreenTime) <- c("Date", "Day", "DayType", "ScreenTime")
+
+ScreenTime <- ScreenTime %>%
+  filter(!is.na(Date), !is.na(ScreenTime)) %>%
+  mutate(
+    ScreenTime = trimws(as.character(ScreenTime)),
+    Date = as.Date(Date),
+    DayType = factor(trimws(DayType), levels = c("Weekday", "Weekend"))
+  )
+
+# Check the expected iPhone format before converting times.
+# Both "9h 1m" and "7h" are valid; "7h" means 7 hours, 0 minutes.
+# Check the ScreenTime column, not the entire data frame.
+stopifnot(all(grepl("^[0-9]+h( *[0-9]+m)?$", ScreenTime$ScreenTime)))
+
+ScreenTime <- ScreenTime %>%
+  mutate(
+    Hours = as.numeric(sub("h.*", "", ScreenTime)),
+    MinuteText = sub(".*h *", "", ScreenTime),
+    Minutes = ifelse(MinuteText == "", 0,
+                     as.numeric(sub("m$", "", MinuteText))),
+    TotalMinutes = Hours * 60 + Minutes
+  ) %>%
+  arrange(Date)
+
+# Check the dates and missing values using simple comparisons.
+ExpectedDates <- seq(as.Date("2026-10-19"),
+                     as.Date("2026-11-08"), by = "day")
+
+if (nrow(ScreenTime) != 21) {
+  stop("Use the completed Excel file with all 21 days of data.")
+}
+
+if (any(is.na(ScreenTime$Date)) ||
+    any(is.na(ScreenTime$TotalMinutes)) ||
+    any(is.na(ScreenTime$DayType))) {
+  stop("Check the Excel file for missing or invalid data.")
+}
+
+if (!all(ScreenTime$Date == ExpectedDates)) {
+  stop("Check that the dates run from October 19 to November 8, 2026.")
+}
+
+knitr::kable(
+  ScreenTime %>% select(Date, Day, DayType, ScreenTime, TotalMinutes),
+  caption = "Daily iPhone Screen Time, October 19 to November 8, 2026"
+)
+```
+
+## Summary Statistics
+
+```{r summary-statistics}
+SummaryStats <- ScreenTime %>%
+  group_by(DayType) %>%
+  summarize(
+    Days = n(),
+    Mean = round(mean(TotalMinutes), 2),
+    SD = round(sd(TotalMinutes), 2),
+    Minimum = min(TotalMinutes),
+    Maximum = max(TotalMinutes),
+    Range = max(TotalMinutes) - min(TotalMinutes),
+    .groups = "drop"
+  )
+
+knitr::kable(
+  SummaryStats,
+  caption = "Summary Statistics by Day Type (Minutes)"
+)
+```
+
+The weekday average was `r round(mean(ScreenTime$TotalMinutes[ScreenTime$DayType == "Weekday"]), 2)` minutes, compared with `r round(mean(ScreenTime$TotalMinutes[ScreenTime$DayType == "Weekend"]), 2)` minutes on weekends.
+
+## Poster Summary Table
+
+```{r poster-summary}
+PosterSummary <- ScreenTime %>%
+  group_by(DayType) %>%
+  summarise(
+    Days = n(),
+    Mean = round(mean(TotalMinutes), 2),
+    SD = round(sd(TotalMinutes), 2)
+  )
+
+knitr::kable(PosterSummary,
+             caption = "Poster Summary: Mean and SD (Minutes)")
+```
+
+The standard deviation was 70.52 minutes on weekdays and 80.15 minutes on weekends. Weekend screen time varied slightly more.
+
+## Graph 1: Weekday vs. Weekend Screen Time
+
+```{r boxplot}
+ggplot(ScreenTime, aes(x = DayType, y = TotalMinutes, fill = DayType)) +
+  stat_boxplot(geom = "errorbar", width = 0.25, color = "#526475") +
+  geom_boxplot(width = 0.50, color = "#526475") +
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.50, color = "white") +
+  stat_summary(fun = mean, geom = "point", shape = 18,
+               size = 6, color = "#E4AE43") +
+  scale_fill_manual(values = c("#193653", "#137E89")) +
+  scale_x_discrete(labels = c("Weekdays (15)", "Weekends (6)")) +
+  scale_y_continuous(breaks = seq(200, 600, 100), limits = c(150, 650)) +
+  labs(title = "Screen Time by Day Type", x = NULL,
+       y = "Screen time (minutes)") +
+  theme_classic(base_size = 18) +
+  theme(legend.position = "none",
+        panel.grid.major.y = element_line(color = "#DCE4E9"),
+        plot.title = element_text(size = 20),
+        axis.title = element_text(size = 19))
+```
+
+### Interpretation
+
+The boxplot compares the spread of my screen time on weekdays and weekends. Gold diamonds show each group mean. The weekday values are generally higher, although the distributions overlap.
+
+## Graph 2: Daily Screen Time Over Time
+
+```{r line-graph}
+WeekendTime <- ScreenTime %>% filter(DayType == "Weekend")
+
+ggplot(ScreenTime, aes(x = Date, y = TotalMinutes)) +
+  geom_line(color = "#193653", linewidth = 1) +
+  geom_point(color = "#193653", size = 2.5) +
+  geom_point(data = WeekendTime, aes(color = "Weekend"), size = 4) +
+  scale_color_manual(values = c("Weekend" = "#137E89")) +
+  scale_x_date(breaks = seq(as.Date("2026-10-19"),
+                            as.Date("2026-11-08"), by = "4 days"),
+               date_labels = "%b %d") +
+  scale_y_continuous(breaks = seq(200, 600, 100), limits = c(150, 650)) +
+  labs(title = "Screen Time Over 21 Days", x = NULL,
+       y = "Screen time (minutes)", color = NULL) +
+  theme_classic(base_size = 18) +
+  theme(legend.position = "top",
+        panel.grid.major.y = element_line(color = "#DCE4E9"),
+        plot.title = element_text(size = 20),
+        axis.title = element_text(size = 19))
+```
+
+### Interpretation
+
+The line graph shows how my screen time changes from day to day. Teal points identify weekend observations, and navy points identify weekdays. Several of the lower values occur on weekends.
+
+## Graph 3: Distribution of Daily Screen Time
+
+```{r histogram}
+ggplot(ScreenTime, aes(x = TotalMinutes)) +
+  geom_histogram(binwidth = 60, fill = "#193653", color = "white") +
+  labs(
+    title = "Distribution of Daily Screen Time",
+    x = "Screen Time (Minutes)",
+    y = "Number of Days"
+  ) +
+  theme_classic(base_size = 18) +
+  theme(panel.grid.major.y = element_line(color = "#DCE4E9"),
+        plot.title = element_text(size = 20),
+        axis.title = element_text(size = 19))
+```
+
+### Interpretation
+
+The histogram shows how frequently different amounts of screen time occurred during the study.
+
+## Graph 4: Average Screen Time by Day Type
+
+```{r average-bar-chart}
+AverageTime <- ScreenTime %>%
+  group_by(DayType) %>%
+  summarize(AverageMinutes = mean(TotalMinutes), .groups = "drop")
+
+ggplot(AverageTime, aes(x = DayType, y = AverageMinutes, fill = DayType)) +
+  geom_col(width = 0.56) +
+  geom_text(aes(label = paste(sprintf("%.1f", AverageMinutes), "min")),
+            vjust = -0.3, size = 6, fontface = "bold", color = "#193653") +
+  scale_fill_manual(values = c("#193653", "#137E89")) +
+  scale_x_discrete(labels = c("Weekdays\n(n=15)", "Weekends\n(n=6)")) +
+  scale_y_continuous(breaks = seq(0, 500, 100), limits = c(0, 570),
+                     expand = c(0, 0)) +
+  labs(title = "Average Daily Screen Time", x = NULL,
+       y = "Average screen time (minutes)") +
+  theme_classic(base_size = 18) +
+  theme(legend.position = "none",
+        panel.grid.major.y = element_line(color = "#DCE4E9"),
+        plot.title = element_text(size = 20),
+        axis.title = element_text(size = 19))
+```
+
+### Interpretation
+
+The bar graph shows that my average weekday screen time was about `r round(AverageTime$AverageMinutes[AverageTime$DayType == "Weekday"] - AverageTime$AverageMinutes[AverageTime$DayType == "Weekend"])` minutes higher than on weekends.
+
+## Statistical Analysis: Welch Two-Sample t-Test
+
+I used a Welch two-sample t-test to compare the average screen time of weekdays and weekends. This test does not assume equal variation in the two groups.
+
+```{r two-sample-t-test}
+ScreenTimeTest <- t.test(TotalMinutes ~ DayType, data = ScreenTime)
+ScreenTimeTest
+```
+
+## Interpretation of the t-Test
+
+The average weekday screen time was **`r round(AverageTime$AverageMinutes[AverageTime$DayType == "Weekday"], 2)` minutes**, compared with **`r round(AverageTime$AverageMinutes[AverageTime$DayType == "Weekend"], 2)` minutes** on weekends, a difference of **`r round(AverageTime$AverageMinutes[1] - AverageTime$AverageMinutes[2], 2)` minutes** in the weekday-minus-weekend direction.
+
+The Welch t-test produced a t-statistic of **`r round(unname(ScreenTimeTest$statistic), 3)`** and a p-value of **`r round(ScreenTimeTest$p.value, 4)`**. Because the p-value is less than 0.05, I **reject the null hypothesis**. My data show a statistically significant difference in average daily screen time, with higher usage on weekdays.
+
+## Conclusion and Limitations
+
+At a significance level of 0.05, the Welch two-sample t-test provides statistically significant evidence that my mean daily screen time differs between weekdays and weekends. During the study period, my average weekday screen time was approximately 136.67 minutes higher than my average weekend screen time.
+
+This study covers only my own phone usage for 21 days, with 15 weekday and 6 weekend observations. Since I measured my phone use on consecutive days, the observations may be related. The results cannot be generalized to everyone or explain what caused the difference.
+
+## Data Source and AI Use Disclosure
+
+The daily measurements came from my own iPhone Screen Time records, October 19–November 8, 2026.
+
+I used ChatGPT (OpenAI, 2026) to help organize the project, develop and troubleshoot R code, and revise written explanations. The original screen-time measurements were recorded from my iPhone.
